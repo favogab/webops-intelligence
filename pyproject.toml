@@ -1,0 +1,22 @@
+
+[project]
+name = "webops-intelligence"
+version = "0.1.0"
+description = "Self-hosted website monitoring and AI-assisted incident response"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
