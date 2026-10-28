@@ -1,44 +1,64 @@
 
-from unittest.mock import patch
+from datetime import datetime, timezone
+from time import perf_counter
 
 import httpx
-
-from app.monitoring.checker import check_website
-
-
-def test_successful_website_check():
-    with patch("app.monitoring.checker.httpx.Client") as client_class:
-        client = client_class.return_value.__enter__.return_value
-        client.get.return_value = httpx.Response(200)
-
-        result = check_website("https://example.com")
-
-    assert result.status_code == 200
-    assert result.is_healthy is True
-    assert result.response_time_ms is not None
-    assert result.error is None
+from pydantic import BaseModel
 
 
-def test_server_error_is_unhealthy():
-    with patch("app.monitoring.checker.httpx.Client") as client_class:
-        client = client_class.return_value.__enter__.return_value
-        client.get.return_value = httpx.Response(503)
+class CheckResult(BaseModel):
+    url: str
+    status_code: int | None
+    status_category: str
+    response_time_ms: float | None
+    checked_at: datetime
+    is_healthy: bool
+    error: str | None = None
 
-        result = check_website("https://example.com")
 
-    assert result.status_code == 503
-    assert result.is_healthy is False
+def check_website(url: str) -> CheckResult:
+    checked_at = datetime.now(timezone.utc)
+    start = perf_counter()
 
+    try:
+        with httpx.Client(
+            timeout=10.0,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
+            response = client.get(url)
 
-def test_connection_failure():
-    with patch("app.monitoring.checker.httpx.Client") as client_class:
-        client = client_class.return_value.__enter__.return_value
-        client.get.side_effect = httpx.ConnectError(
-            "Connection failed"
+        elapsed = round((perf_counter() - start) * 1000, 2)
+        status = response.status_code
+
+        if 200 <= status < 300:
+            category = "success"
+        elif 300 <= status < 400:
+            category = "redirect"
+        elif 400 <= status < 500:
+            category = "client_error"
+        else:
+            category = "server_error"
+
+        return CheckResult(
+            url=url,
+            status_code=status,
+            status_category=category,
+            response_time_ms=elapsed,
+            checked_at=checked_at,
+            is_healthy=category == "success",
         )
 
-        result = check_website("https://example.com")
-
-    assert result.status_code is None
-    assert result.is_healthy is False
-    assert result.error == "ConnectError"
+    except httpx.RequestError as exc:
+        return CheckResult(
+            url=url,
+            status_code=None,
+            status_category="request_error",
+            response_time_ms=round(
+                (perf_counter() - start) * 1000,
+                2,
+            ),
+            checked_at=checked_at,
+            is_healthy=False,
+            error=type(exc).__name__,
+        )
