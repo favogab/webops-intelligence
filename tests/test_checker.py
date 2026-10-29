@@ -1,64 +1,68 @@
-
-from datetime import datetime, timezone
-from time import perf_counter
+from unittest.mock import patch
 
 import httpx
-from pydantic import BaseModel
+
+from app.monitoring.checker import check_website
 
 
-class CheckResult(BaseModel):
-    url: str
-    status_code: int | None
-    status_category: str
-    response_time_ms: float | None
-    checked_at: datetime
-    is_healthy: bool
-    error: str | None = None
+def mock_response(status_code: int) -> httpx.Response:
+    return httpx.Response(status_code)
 
 
-def check_website(url: str) -> CheckResult:
-    checked_at = datetime.now(timezone.utc)
-    start = perf_counter()
+def test_successful_website_check():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.return_value = mock_response(200)
 
-    try:
-        with httpx.Client(
-            timeout=10.0,
-            follow_redirects=False,
-            trust_env=False,
-        ) as client:
-            response = client.get(url)
+        result = check_website("https://example.com")
 
-        elapsed = round((perf_counter() - start) * 1000, 2)
-        status = response.status_code
+    assert result.status_code == 200
+    assert result.status_category == "success"
+    assert result.is_healthy is True
 
-        if 200 <= status < 300:
-            category = "success"
-        elif 300 <= status < 400:
-            category = "redirect"
-        elif 400 <= status < 500:
-            category = "client_error"
-        else:
-            category = "server_error"
 
-        return CheckResult(
-            url=url,
-            status_code=status,
-            status_category=category,
-            response_time_ms=elapsed,
-            checked_at=checked_at,
-            is_healthy=category == "success",
-        )
+def test_redirect_is_not_verified_as_healthy():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.return_value = mock_response(301)
 
-    except httpx.RequestError as exc:
-        return CheckResult(
-            url=url,
-            status_code=None,
-            status_category="request_error",
-            response_time_ms=round(
-                (perf_counter() - start) * 1000,
-                2,
-            ),
-            checked_at=checked_at,
-            is_healthy=False,
-            error=type(exc).__name__,
-        )
+        result = check_website("https://example.com")
+
+    assert result.status_code == 301
+    assert result.status_category == "redirect"
+    assert result.is_healthy is False
+
+
+def test_client_error_is_classified():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.return_value = mock_response(404)
+
+        result = check_website("https://example.com")
+
+    assert result.status_category == "client_error"
+    assert result.is_healthy is False
+
+
+def test_server_error_is_unhealthy():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.return_value = mock_response(503)
+
+        result = check_website("https://example.com")
+
+    assert result.status_category == "server_error"
+    assert result.is_healthy is False
+
+
+def test_connection_failure():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.side_effect = httpx.ConnectError("Connection failed")
+
+        result = check_website("https://example.com")
+
+    assert result.status_code is None
+    assert result.status_category == "request_error"
+    assert result.is_healthy is False
+    assert result.error == "ConnectError"
