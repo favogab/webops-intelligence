@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.api.websites import router as websites_router
 
 
 settings = get_settings()
@@ -27,6 +28,8 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+app.include_router(websites_router)
 
 
 @app.get("/health")
