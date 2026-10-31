@@ -9,6 +9,9 @@ dependencies = [
     "uvicorn[standard]",
     "pydantic-settings",
     "httpx",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]",
+    "alembic",
 ]
 
 [project.optional-dependencies]
