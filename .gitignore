@@ -1,12 +1,17 @@
-.venv/
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+
+# Python
 __pycache__/
-*.py[cod]
 .pytest_cache/
+*.py[cod]
+.venv/
 .env
 .env.*
 !.env.example
-*.db
-*.sqlite3
 .coverage
 htmlcov/
 .vscode/

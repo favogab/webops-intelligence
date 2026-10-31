@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.api.websites import router as websites_router
-
+from app.api.monitoring import router as monitoring_router
 
 settings = get_settings()
 configure_logging()
@@ -30,7 +30,7 @@ app = FastAPI(
 )
 
 app.include_router(websites_router)
-
+app.include_router(monitoring_router)
 
 @app.get("/health")
 def health():
