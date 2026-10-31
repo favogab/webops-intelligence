@@ -13,6 +13,8 @@ class CheckResult(BaseModel):
     response_time_ms: float | None
     checked_at: datetime
     is_healthy: bool
+    content_type: str | None = None
+    redirect_location: str | None = None
     error: str | None = None
 
 
@@ -47,6 +49,8 @@ def check_website(url: str) -> CheckResult:
             response_time_ms=elapsed,
             checked_at=checked_at,
             is_healthy=category == "success",
+            content_type=response.headers.get("content-type"),
+            redirect_location=response.headers.get("location"),
         )
 
     except httpx.TimeoutException as exc:

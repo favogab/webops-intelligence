@@ -6,8 +6,11 @@ import httpx
 from app.monitoring.checker import check_website
 
 
-def mock_response(status_code: int) -> httpx.Response:
-    return httpx.Response(status_code)
+def mock_response(
+    status_code: int,
+    headers: dict | None = None,
+) -> httpx.Response:
+    return httpx.Response(status_code, headers=headers)
 
 
 def test_successful_website_check():
@@ -93,3 +96,31 @@ def test_other_request_error():
     assert result.status_category == "request_error"
     assert result.is_healthy is False
     assert result.error == "RequestError"
+
+def test_content_type_is_captured():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.return_value = mock_response(
+            200,
+            {"content-type": "application/json"},
+        )
+
+        result = check_website("https://example.com")
+
+    assert result.content_type == "application/json"
+
+
+def test_redirect_location_is_captured():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.return_value = mock_response(
+            301,
+            {"location": "https://www.example.com"},
+        )
+
+        result = check_website("https://example.com")
+
+    assert result.status_category == "redirect"
+    assert result.redirect_location == "https://www.example.com"
+    assert result.is_healthy is False    
+
