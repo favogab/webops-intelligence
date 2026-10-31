@@ -1,3 +1,4 @@
+
 from datetime import datetime, timezone
 from time import perf_counter
 
@@ -48,16 +49,27 @@ def check_website(url: str) -> CheckResult:
             is_healthy=category == "success",
         )
 
+    except httpx.TimeoutException as exc:
+        category = "timeout"
+        error = type(exc).__name__
+
+    except httpx.ConnectError as exc:
+        category = "connection_error"
+        error = type(exc).__name__
+
     except httpx.RequestError as exc:
-        return CheckResult(
-            url=url,
-            status_code=None,
-            status_category="request_error",
-            response_time_ms=round(
-                (perf_counter() - start) * 1000,
-                2,
-            ),
-            checked_at=checked_at,
-            is_healthy=False,
-            error=type(exc).__name__,
-        )
+        category = "request_error"
+        error = type(exc).__name__
+
+    return CheckResult(
+        url=url,
+        status_code=None,
+        status_category=category,
+        response_time_ms=round(
+            (perf_counter() - start) * 1000,
+            2,
+        ),
+        checked_at=checked_at,
+        is_healthy=False,
+        error=error,
+    )

@@ -1,3 +1,4 @@
+
 from unittest.mock import patch
 
 import httpx
@@ -63,6 +64,32 @@ def test_connection_failure():
         result = check_website("https://example.com")
 
     assert result.status_code is None
-    assert result.status_category == "request_error"
+    assert result.status_category == "connection_error"
     assert result.is_healthy is False
     assert result.error == "ConnectError"
+
+
+def test_request_timeout():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.side_effect = httpx.ReadTimeout("Request timed out")
+
+        result = check_website("https://example.com")
+
+    assert result.status_code is None
+    assert result.status_category == "timeout"
+    assert result.is_healthy is False
+    assert result.error == "ReadTimeout"
+
+
+def test_other_request_error():
+    with patch("app.monitoring.checker.httpx.Client") as factory:
+        client = factory.return_value.__enter__.return_value
+        client.get.side_effect = httpx.RequestError("Request failed")
+
+        result = check_website("https://example.com")
+
+    assert result.status_code is None
+    assert result.status_category == "request_error"
+    assert result.is_healthy is False
+    assert result.error == "RequestError"
