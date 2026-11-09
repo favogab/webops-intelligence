@@ -201,3 +201,52 @@ def test_new_failure_streak_can_open_another_incident_after_resolution(
     assert len(incidents) == 2
     assert incidents[0].status == "resolved"
     assert incidents[1].status == "open"
+
+
+def test_repeated_failures_do_not_create_duplicate_incidents(db, website):
+    for _ in range(3):
+        process_check(db, website, "server_error")
+
+    original_incident = get_incidents(db, website)[0]
+    original_id = original_incident.id
+    original_trigger = original_incident.triggering_result_id
+
+    for _ in range(5):
+        returned_incident = process_check(
+            db,
+            website,
+            "server_error",
+        )
+
+        assert returned_incident.id == original_id
+
+    incidents = get_incidents(db, website)
+
+    assert len(incidents) == 1
+    assert incidents[0].id == original_id
+    assert incidents[0].triggering_result_id == original_trigger
+    assert incidents[0].status == "open"
+
+
+def test_database_rejects_multiple_active_incidents(db, website):
+    first = Incident(
+        website_id=website.id,
+        title="First incident",
+        status="open",
+    )
+    db.add(first)
+    db.commit()
+
+    duplicate = Incident(
+        website_id=website.id,
+        title="Duplicate incident",
+        status="open",
+    )
+    db.add(duplicate)
+
+    with pytest.raises(Exception):
+        db.commit()
+
+    db.rollback()
+
+    assert len(get_incidents(db, website)) == 1
