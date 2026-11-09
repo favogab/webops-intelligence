@@ -1,9 +1,10 @@
 
 from datetime import datetime
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -45,8 +46,63 @@ class IncidentEventRead(BaseModel):
     created_at: datetime
 
 
+class IncidentListResponse(BaseModel):
+    items: list[IncidentRead]
+    total: int
+    limit: int
+    offset: int
+
+
 class AcknowledgeRequest(BaseModel):
     acknowledged_by: str = Field(min_length=1, max_length=150)
+
+
+@router.get("", response_model=IncidentListResponse)
+def list_incidents(
+    status_filter: Literal["open", "recovering", "resolved"] | None = Query(
+        default=None,
+        alias="status",
+    ),
+    website_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    filters = []
+
+    if status_filter is not None:
+        filters.append(Incident.status == status_filter)
+
+    if website_id is not None:
+        filters.append(Incident.website_id == website_id)
+
+    total_statement = (
+        select(func.count())
+        .select_from(Incident)
+        .where(*filters)
+    )
+
+    total = db.scalar(total_statement) or 0
+
+    statement = (
+        select(Incident)
+        .where(*filters)
+        .order_by(
+            Incident.opened_at.desc(),
+            Incident.id.desc(),
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+
+    incidents = db.scalars(statement).all()
+
+    return IncidentListResponse(
+        items=incidents,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{incident_id}", response_model=IncidentRead)

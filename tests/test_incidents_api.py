@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
 from app.main import app
-from app.models import Incident, IncidentEvent, Website
+from app.models import Incident, IncidentEvent
 
 
 @pytest.fixture
@@ -56,6 +56,8 @@ def incident_record(api):
             "url": "https://example.com",
         },
     )
+
+    assert website_response.status_code == 201
 
     website_id = website_response.json()["id"]
 
@@ -272,6 +274,231 @@ def test_acknowledgement_rejects_blank_operator_name(
     response = client.post(
         f"/api/v1/incidents/{incident_id}/acknowledge",
         json={"acknowledged_by": "   "},
+    )
+
+    assert response.status_code == 422
+
+
+def create_test_incident(
+    client,
+    SessionLocal,
+    incident_status="open",
+    opened_at=None,
+    website_id=None,
+):
+    # Create a separate website unless one was supplied.
+    if website_id is None:
+        unique_token = datetime.now(timezone.utc).timestamp()
+
+        website_response = client.post(
+            "/api/v1/websites",
+            json={
+                "name": f"Test Website {unique_token}",
+                "url": f"https://example-{unique_token}.com",
+            },
+        )
+
+        assert website_response.status_code == 201
+
+        website_id = website_response.json()["id"]
+
+    timestamp = opened_at or datetime.now(timezone.utc)
+
+    with SessionLocal() as db:
+        incident = Incident(
+            website_id=website_id,
+            title=f"Test incident: {incident_status}",
+            description="Test incident for listing API.",
+            status=incident_status,
+            opened_at=timestamp,
+            updated_at=timestamp,
+        )
+
+        db.add(incident)
+        db.commit()
+        db.refresh(incident)
+
+        return incident.id
+
+
+def test_list_incidents(api, incident_record):
+    client, _ = api
+
+    response = client.get("/api/v1/incidents")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["status"] == "open"
+    assert data["limit"] == 20
+    assert data["offset"] == 0
+
+
+def test_filter_incidents_by_status(api, incident_record):
+    client, SessionLocal = api
+    _, website_id = incident_record
+
+    create_test_incident(
+        client,
+        SessionLocal,
+        incident_status="resolved",
+        website_id=website_id,
+    )
+
+    response = client.get("/api/v1/incidents?status=resolved")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["total"] == 1
+    assert all(
+        item["status"] == "resolved"
+        for item in data["items"]
+    )
+
+
+def test_filter_incidents_by_website(api, incident_record):
+    client, SessionLocal = api
+    _, website_id = incident_record
+
+    second_website = client.post(
+        "/api/v1/websites",
+        json={
+            "name": "Second Website",
+            "url": "https://example.org",
+        },
+    )
+
+    assert second_website.status_code == 201
+
+    second_website_id = second_website.json()["id"]
+
+    create_test_incident(
+        client,
+        SessionLocal,
+        website_id=second_website_id,
+    )
+
+    response = client.get(
+        f"/api/v1/incidents?website_id={website_id}"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["total"] == 1
+    assert all(
+        item["website_id"] == website_id
+        for item in data["items"]
+    )
+
+
+def test_incident_pagination(api, incident_record):
+    client, SessionLocal = api
+
+    for _ in range(3):
+        create_test_incident(client, SessionLocal)
+
+    response = client.get(
+        "/api/v1/incidents?limit=2&offset=1"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["total"] == 4
+    assert len(data["items"]) == 2
+    assert data["limit"] == 2
+    assert data["offset"] == 1
+
+
+def test_incidents_are_ordered_newest_first(api, incident_record):
+    client, SessionLocal = api
+
+    now = datetime.now(timezone.utc)
+
+    create_test_incident(
+        client,
+        SessionLocal,
+        opened_at=now - timedelta(minutes=10),
+    )
+
+    newest_id = create_test_incident(
+        client,
+        SessionLocal,
+        opened_at=now + timedelta(minutes=10),
+    )
+
+    response = client.get("/api/v1/incidents")
+
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+
+    assert items[0]["id"] == newest_id
+
+
+def test_combine_incident_filters(api, incident_record):
+    client, SessionLocal = api
+    _, website_id = incident_record
+
+    # This resolved incident belongs to the website being filtered.
+    create_test_incident(
+        client,
+        SessionLocal,
+        incident_status="resolved",
+        website_id=website_id,
+    )
+
+    # This active incident belongs to another website.
+    create_test_incident(
+        client,
+        SessionLocal,
+        incident_status="recovering",
+    )
+
+    response = client.get(
+        f"/api/v1/incidents?status=resolved&website_id={website_id}"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["total"] == 1
+    assert data["items"][0]["status"] == "resolved"
+    assert data["items"][0]["website_id"] == website_id
+
+
+def test_invalid_incident_status_is_rejected(api):
+    client, _ = api
+
+    response = client.get(
+        "/api/v1/incidents?status=invalid"
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "limit=0",
+        "limit=101",
+        "offset=-1",
+    ],
+)
+def test_invalid_incident_pagination_is_rejected(api, query):
+    client, _ = api
+
+    response = client.get(
+        f"/api/v1/incidents?{query}"
     )
 
     assert response.status_code == 422
