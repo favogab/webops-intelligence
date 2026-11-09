@@ -5,7 +5,7 @@ from alembic import context
 
 from app.core.config import get_settings
 from app.core.database import Base
-from app.models import Website, MonitoringResult, Incident
+from app.models import Website, MonitoringResult, Incident, IncidentEvent
 
 config = context.config
 

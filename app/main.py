@@ -9,6 +9,7 @@ from app.core.logging import configure_logging
 from app.api.websites import router as websites_router
 from app.api.monitoring import router as monitoring_router
 from app.monitoring.scheduler import start_scheduler, shutdown_scheduler
+from app.api.incidents import router as incidents_router
 
 settings = get_settings()
 configure_logging()
@@ -38,6 +39,7 @@ app = FastAPI(
 
 app.include_router(websites_router)
 app.include_router(monitoring_router)
+app.include_router(incidents_router)
 
 
 @app.get("/health")

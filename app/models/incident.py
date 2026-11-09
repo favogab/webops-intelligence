@@ -1,4 +1,3 @@
-
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -46,6 +45,14 @@ class Incident(Base):
         nullable=False,
     )
 
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+
+    acknowledged_by: Mapped[str | None] = mapped_column(
+        String(150),
+    )
+
     opened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -68,6 +75,12 @@ class Incident(Base):
     )
 
     triggering_result: Mapped["MonitoringResult | None"] = relationship()
+
+    events: Mapped[list["IncidentEvent"]] = relationship(
+        back_populates="incident",
+        cascade="all, delete-orphan",
+        order_by="IncidentEvent.created_at",
+    )
 
     __table_args__ = (
         Index(
