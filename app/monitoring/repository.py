@@ -24,8 +24,7 @@ def save_monitoring_result(
     )
 
     db.add(record)
-    db.commit()
-    db.refresh(record)
+    db.flush()
 
     return record
 

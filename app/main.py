@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.api.websites import router as websites_router
 from app.api.monitoring import router as monitoring_router
+from app.monitoring.scheduler import start_scheduler, shutdown_scheduler
 
 settings = get_settings()
 configure_logging()
@@ -18,8 +19,14 @@ logger = logging.getLogger("webops")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("WebOps Intelligence started")
-    yield
-    logger.info("WebOps Intelligence stopped")
+
+    start_scheduler()
+
+    try:
+        yield
+    finally:
+        shutdown_scheduler()
+        logger.info("WebOps Intelligence stopped")
 
 
 app = FastAPI(
@@ -31,6 +38,7 @@ app = FastAPI(
 
 app.include_router(websites_router)
 app.include_router(monitoring_router)
+
 
 @app.get("/health")
 def health():
